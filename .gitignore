@@ -1,0 +1,4 @@
+*.log
+*.pt.trace.json
+prof_trace/
+**/__pycache__/
