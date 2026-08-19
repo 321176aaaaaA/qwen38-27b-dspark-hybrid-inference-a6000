@@ -1,0 +1,10 @@
+--- vllm/v1/worker/gpu_input_batch.py.bak-sampler-0819	2026-08-19 16:59:51.204162565 +0800
++++ vllm/v1/worker/gpu_input_batch.py	2026-08-19 16:59:51.206206090 +0800
+@@ -920,6 +920,7 @@
+             all_random=self.all_random,
+             top_p=None if self.no_top_p else self.top_p[:num_reqs],
+             top_k=None if self.no_top_k else self.top_k[:num_reqs],
++            top_k_max=None if self.no_top_k else int(self.top_k_cpu[:num_reqs].max()),
+             generators=self.generators,
+             max_num_logprobs=self.max_num_logprobs,
+             logprob_token_ids=logprob_token_ids_by_index,

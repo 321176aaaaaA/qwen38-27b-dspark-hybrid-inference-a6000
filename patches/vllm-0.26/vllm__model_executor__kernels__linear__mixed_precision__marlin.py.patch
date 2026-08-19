@@ -1,0 +1,41 @@
+--- vllm/model_executor/kernels/linear/mixed_precision/marlin.py.bak-marlin-0819	2026-08-19 17:15:03.448836853 +0800
++++ vllm/model_executor/kernels/linear/mixed_precision/marlin.py	2026-08-19 17:15:03.454998500 +0800
+@@ -95,6 +95,38 @@
+                 "W8A8 is not supported by marlin kernel."
+             )
+ 
++        # syv patch: the int8-activation Marlin kernel reads the (int16-requantized)
++        # group scales as *unsigned* int16 (marlin_template.h: reinterpret_cast<
++        # uint16_t*>), so checkpoints with negative group scales (AutoRound
++        # symmetric exports have ~50%) produce garbage. Fold the sign into the
++        # int4 codes: s -> -s, q -> -q (uint4b8 code v -> 16 - v, clamped to 15;
++        # v == 0 i.e. q == -8 loses one LSB, extremely rare).
++        if (
++            c.act_type == torch.int8
++            and c.group_size != -1
++            and not c.has_g_idx
++            and not c.zero_points
++        ):
++            _wq = getattr(layer, self.w_q_name)
++            _ws = getattr(layer, self.w_s_name)
++            permute_param_layout_(_wq, input_dim=0, output_dim=1, packed_dim=0)
++            permute_param_layout_(_ws, input_dim=0, output_dim=1)
++            _neg = _ws.data < 0
++            if bool(_neg.any()):
++                _q = _wq.data
++                _rows_per_group = c.group_size // 8
++                _neg_rows = _neg.repeat_interleave(_rows_per_group, dim=0)[: _q.shape[0]]
++                _shifts = torch.arange(0, 32, 4, device=_q.device, dtype=torch.int32)
++                _nib = (_q.unsqueeze(-1) >> _shifts) & 0xF
++                _flip = torch.clamp(16 - _nib, max=15)
++                _nib = torch.where(_neg_rows.unsqueeze(-1), _flip, _nib)
++                _out = torch.zeros_like(_q)
++                for _i in range(8):
++                    _out |= _nib[..., _i] << (4 * _i)
++                _wq.data = _out
++                _ws.data = torch.where(_neg, -_ws.data, _ws.data)
++                del _nib, _flip, _out
++
+         if c.act_type == torch.float8_e4m3fn:
+             ops.marlin_int4_fp8_preprocess(getattr(layer, self.w_q_name), inplace=True)
+             getattr(layer, self.w_s_name).data = (

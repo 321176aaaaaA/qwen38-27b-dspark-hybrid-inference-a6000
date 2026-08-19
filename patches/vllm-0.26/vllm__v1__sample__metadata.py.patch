@@ -1,0 +1,9 @@
+--- vllm/v1/sample/metadata.py.bak-sampler-0819	2026-08-19 16:59:51.194325721 +0800
++++ vllm/v1/sample/metadata.py	2026-08-19 16:59:51.205201537 +0800
+@@ -53,3 +53,6 @@
+     # When non-None, use ``holder.has_tracked_requests()`` to see if this batch applies
+     # thinking-token-budget logits (holder may exist with an empty tracking set).
+     thinking_budget_state_holder: ThinkingBudgetStateHolder | None = None
++    # syv patch: host-side max of top_k over the batch (vocab_size when a
++    # request has no top-k). Lets the sampler take a sort-free path.
++    top_k_max: int | None = None

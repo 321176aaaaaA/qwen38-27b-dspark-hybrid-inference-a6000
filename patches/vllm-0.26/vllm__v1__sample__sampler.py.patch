@@ -1,0 +1,10 @@
+--- vllm/v1/sample/sampler.py.bak-sampler-0819	2026-08-19 16:59:51.201688216 +0800
++++ vllm/v1/sample/sampler.py	2026-08-19 16:59:51.205744238 +0800
+@@ -288,6 +288,7 @@
+             sampling_metadata.generators,
+             sampling_metadata.top_k,
+             sampling_metadata.top_p,
++            k_max=sampling_metadata.top_k_max,
+         )
+ 
+         if greedy_sampled is None:

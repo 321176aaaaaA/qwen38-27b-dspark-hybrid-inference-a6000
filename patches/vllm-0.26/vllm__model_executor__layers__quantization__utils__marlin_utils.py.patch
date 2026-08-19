@@ -1,0 +1,21 @@
+--- vllm/model_executor/layers/quantization/utils/marlin_utils.py.bak-marlin-0819	2026-08-19 17:15:03.453720718 +0800
++++ vllm/model_executor/layers/quantization/utils/marlin_utils.py	2026-08-19 17:15:03.458637557 +0800
+@@ -640,7 +640,17 @@
+ def get_marlin_input_dtype(prefix: str | None = None):
+     if envs.VLLM_MARLIN_INPUT_DTYPE is None:
+         return
+-    elif envs.VLLM_MARLIN_INPUT_DTYPE.lower() == "int8":
++    # syv patch: per-layer include/exclude regexes for the int8/fp8 activation
++    # path (lm_head is int8-weight -> W8A8 unsupported by marlin; mtp stays 16-bit)
++    import os as _os, re as _re
++    _exc = _os.environ.get("VLLM_MARLIN_INT8_EXCLUDE_RE", "lm_head|mtp")
++    _inc = _os.environ.get("VLLM_MARLIN_INT8_INCLUDE_RE", "")
++    if prefix is not None:
++        if _exc and _re.search(_exc, prefix):
++            return
++        if _inc and not _re.search(_inc, prefix):
++            return
++    if envs.VLLM_MARLIN_INPUT_DTYPE.lower() == "int8":
+         return torch.int8
+     elif envs.VLLM_MARLIN_INPUT_DTYPE.lower() == "fp8":
+         if not current_platform.is_device_capability(
