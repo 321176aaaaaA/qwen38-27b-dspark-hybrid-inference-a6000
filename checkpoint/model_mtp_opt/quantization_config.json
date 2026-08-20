@@ -1,32 +1,95 @@
 {
   "config_groups": {
     "group_0": {
+      "format": "pack-quantized",
+      "input_activations": null,
+      "output_activations": null,
       "targets": [
         "Linear"
       ],
       "weights": {
-        "num_bits": 4,
-        "type": "int",
-        "symmetric": true,
-        "group_size": 128,
-        "strategy": "group",
+        "actorder": null,
         "block_structure": null,
         "dynamic": false,
-        "actorder": null,
-        "scale_dtype": null,
-        "zp_dtype": null,
+        "group_size": 128,
+        "num_bits": 4,
         "observer": "memoryless_minmax",
-        "observer_kwargs": {}
-      },
+        "observer_kwargs": {},
+        "scale_dtype": null,
+        "strategy": "group",
+        "symmetric": true,
+        "type": "int",
+        "zp_dtype": null
+      }
+    },
+    "group_1": {
+      "format": "pack-quantized",
       "input_activations": null,
       "output_activations": null,
-      "format": "pack-quantized"
+      "targets": [
+        "re:.*lm_head$"
+      ],
+      "weights": {
+        "actorder": null,
+        "block_structure": null,
+        "dynamic": false,
+        "group_size": 128,
+        "num_bits": 8,
+        "observer": "memoryless_minmax",
+        "observer_kwargs": {},
+        "scale_dtype": null,
+        "strategy": "group",
+        "symmetric": true,
+        "type": "int",
+        "zp_dtype": null
+      }
+    },
+    "group_2": {
+      "format": "pack-quantized",
+      "input_activations": null,
+      "output_activations": null,
+      "targets": [
+        "re:.*embed_tokens$"
+      ],
+      "weights": {
+        "actorder": null,
+        "block_structure": null,
+        "dynamic": false,
+        "group_size": 128,
+        "num_bits": 8,
+        "observer": "memoryless_minmax",
+        "observer_kwargs": {},
+        "scale_dtype": null,
+        "strategy": "group",
+        "symmetric": true,
+        "type": "int",
+        "zp_dtype": null
+      }
+    },
+    "group_3": {
+      "format": "pack-quantized",
+      "input_activations": null,
+      "output_activations": null,
+      "targets": [
+        "re:^mtp\\..*"
+      ],
+      "weights": {
+        "actorder": null,
+        "block_structure": null,
+        "dynamic": false,
+        "group_size": 128,
+        "num_bits": 8,
+        "observer": "memoryless_minmax",
+        "observer_kwargs": {},
+        "scale_dtype": null,
+        "strategy": "group",
+        "symmetric": true,
+        "type": "int",
+        "zp_dtype": null
+      }
     }
   },
-  "quant_method": "compressed-tensors",
-  "kv_cache_scheme": null,
   "format": "pack-quantized",
-  "quantization_status": "compressed",
   "global_compression_ratio": null,
   "ignore": [
     "model.visual.blocks.0.attn.qkv",
@@ -234,7 +297,9 @@
     "model.language_model.layers.61.linear_attn.in_proj_b",
     "model.language_model.layers.61.linear_attn.in_proj_a",
     "model.language_model.layers.62.linear_attn.in_proj_b",
-    "model.language_model.layers.62.linear_attn.in_proj_a",
-    "lm_head"
-  ]
+    "model.language_model.layers.62.linear_attn.in_proj_a"
+  ],
+  "kv_cache_scheme": null,
+  "quant_method": "compressed-tensors",
+  "quantization_status": "compressed"
 }

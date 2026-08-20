@@ -1,5 +1,8 @@
 # DSpark Q4 WNA16 GPU2 优化报告（第三轮：kernel 实验 + 长稳压力测试）
 
+> **历史报告**：本文记录早期 DSpark（nst=7）阶段的优化与压测数据，其中引用的脚本现收于 `scripts/`。
+> 最新 MTP4 最终栈与 M1 混合位宽数据以 [README](README.zh-CN.md) 基准章节为准。
+
 ## 独立工作副本
 - `/opt/dspark_dev_vllm`
 - 未修改官方路径：`/opt/qwen38_27b/site_vllm021`、`/opt/qwen38_27b` 现有配置、`/opt/workspace/deepseek-harness` 均未触碰。

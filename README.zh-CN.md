@@ -77,6 +77,24 @@ sm_86 单路场景完全带宽 bound；FP8 在 sm_86 无 tensor core 加速。
 - 超显存并发（6×100k tok 实测）：请求排队串行化，0 抢占 0 崩溃，decode 88–122 tok/s 不降速
 - offload 重访 TTFT 3.2–4 s vs 冷启动 81 s（25×）
 
+## 复现 dev vLLM 栈
+
+1. 基于 **vLLM 0.26.0** 源码 checkout（Python 3.12、sm_86 版 torch、CUDA 12.x）。
+2. 应用补丁集：
+   - `patches/vllm-0.26/*.patch` —— unified diff；文件名映射源码路径
+     （`vllm__a__b.py.patch` → `vllm/a/b.py`），用 `git apply` 或 `patch -p1` 应用
+   - `patches/vllm-0.26/NEW__*.py` —— 全新文件直接复制（`NEW__vllm__x__y.py` → `vllm/x/y.py`）
+   - `patches/vllm/model_executor/kernels/linear/__init__.py` 与 `.../mixed_precision/__init__.py`
+     —— **整文件替换**（自定义 marlin kernel 挂载的注册框架）
+3. 任何改动后必跑质量门（benchmark 看不出输出垃圾）：
+   ```bash
+   python scripts/quality_battery_164.py <tag>        # PPL + GSM8K
+   python scripts/humaneval_eval.py --tag <tag>       # HumanEval-164
+   python scripts/fair_gen2.py --thinking --max-tokens 60000 ...  # IFBench 生成
+   python scripts/fair_eval.py --responses ...        # IFBench strict/loose
+   ```
+4. 长上下文与压测工具：`scripts/long_context_test.py`、`scripts/stress_test.py`。
+
 ## 启动命令（最终形态）
 
 ```bash
@@ -100,6 +118,8 @@ vllm serve <checkpoint_dir> \
 3. MTP 40k draft vocab head（checkpoint 含 `mtp_draft_vocab_ids.pt` 时自动启用；`MTP_DRAFT_VOCAB=0` 关闭）
 4. spec-decode-attn split-KV verify attention（`VLLM_SPEC_DECODE_ATTN=1`，bf16 KV only，长输出 +31%）
 5. marlin int8 负 scale 符号修复 + 层选 regex（`VLLM_MARLIN_INT8_INCLUDE_RE/EXCLUDE_RE`）
+6. `patches/vllm/model_executor/kernels/linear/` 下的 kernel 注册框架整文件
+   （自定义 marlin 路径经其注册；见“复现”章节）
 
 ## 关键运维教训
 

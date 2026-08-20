@@ -86,6 +86,26 @@ tensor-core acceleration on sm_86.
   0 preemptions 0 crashes, decode stays at 88–122 tok/s
 - Offload revisit TTFT 3.2–4 s vs 81 s cold (25×)
 
+## Reproducing the dev vLLM stack
+
+1. Start from a **vLLM 0.26.0** source checkout (Python 3.12, torch for sm_86, CUDA 12.x).
+2. Apply the patch set:
+   - `patches/vllm-0.26/*.patch` — unified diffs; filename maps to source path
+     (`vllm__a__b.py.patch` → `vllm/a/b.py`), apply with `git apply` or `patch -p1`
+   - `patches/vllm-0.26/NEW__*.py` — brand-new files, copy as-is
+     (`NEW__vllm__x__y.py` → `vllm/x/y.py`)
+   - `patches/vllm/model_executor/kernels/linear/__init__.py` and
+     `.../mixed_precision/__init__.py` — **full-file replacements** (kernel-registry
+     framework the custom marlin path plugs into)
+3. Sanity gate after any change (never trust benchmarks alone):
+   ```bash
+   python scripts/quality_battery_164.py <tag>        # PPL + GSM8K
+   python scripts/humaneval_eval.py --tag <tag>       # HumanEval-164
+   python scripts/fair_gen2.py --thinking --max-tokens 60000 ...  # IFBench generation
+   python scripts/fair_eval.py --responses ...        # IFBench strict/loose
+   ```
+4. Long-context / stress tooling: `scripts/long_context_test.py`, `scripts/stress_test.py`.
+
 ## Launch command (final form)
 
 ```bash
@@ -114,6 +134,8 @@ Full launcher: `scripts/start_gpu2_exp.sh` (dirty-GPU cleanup, cudagraph tiers, 
    +31% on long outputs)
 5. marlin int8 negative-scale sign fix + layer-selection regex
    (`VLLM_MARLIN_INT8_INCLUDE_RE/EXCLUDE_RE`)
+6. kernel-registry framework full files under `patches/vllm/model_executor/kernels/linear/`
+   (the custom marlin path registers through them; see *Reproducing* section)
 
 ## Ops lessons learned
 
