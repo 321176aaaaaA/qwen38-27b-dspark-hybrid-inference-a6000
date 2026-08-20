@@ -1,8 +1,9 @@
-# Qwen3.8-27B DSpark Q4 (W4A16) — A6000 Optimized Checkpoint
+# Qwen3.8-27B DSpark — A6000 混合精度推理
 
 **中文** | [English](README.md)
 
-**Private release.** 本仓库发布 Q4(W4A16) 正式版 checkpoint 及配套优化补丁。
+本仓库发布 Qwen3.8-27B DSpark 的生产级混合精度 checkpoint（Q4 W4A16 正式版 + M1 down_proj-8bit
+混合变体）及配套 vLLM 优化补丁集，针对 NVIDIA A6000（sm_86）调优。
 
 > 本项目基于 [syv-ai/qwen38-27b-rtx3090](https://github.com/syv-ai/qwen38-27b-rtx3090) 的模型与评测体系，
 > 在其基础上针对 A6000（sm_86）做了量化/投机解码/kernel 级优化。感谢上游工作。

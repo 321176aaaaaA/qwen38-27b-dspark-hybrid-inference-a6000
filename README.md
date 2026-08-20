@@ -1,9 +1,10 @@
-# Qwen3.8-27B DSpark Q4 (W4A16) — A6000 Optimized Checkpoint
+# Qwen3.8-27B DSpark — Hybrid-Precision Inference on A6000
 
 **[中文文档](README.zh-CN.md)** | English
 
-**Private release.** This repository publishes the production Q4 (W4A16) checkpoint plus the
-companion optimization patch set.
+This repository publishes production hybrid-precision checkpoints (Q4 W4A16 release +
+M1 down_proj-8bit hybrid variant) for Qwen3.8-27B DSpark, plus the companion vLLM
+optimization patch set, tuned for NVIDIA A6000 (sm_86).
 
 > Built on top of [syv-ai/qwen38-27b-rtx3090](https://github.com/syv-ai/qwen38-27b-rtx3090)
 > (model + evaluation framework), extended with quantization / speculative-decoding / kernel-level
