@@ -14,16 +14,45 @@
 Release `v1.0.0-q4-w4a16` assets 包含 10 个 safetensors 分片（≤2GB/片，GitHub 限制），
 下载全部分片后与仓库内小文件（config/tokenizer/index 等）放同一目录即可加载。
 
-## 性能（164 服务器，A6000 48GB sm_86，vLLM 0.26 + patches/）
+## 基准测试（164 服务器，A6000 48GB sm_86，vLLM 0.26 + patches/）
+
+### Q4 最终栈（本 release checkpoint + 全部补丁）
 
 | 指标 | 数值 |
 |---|---|
 | 单路 decode | 93.3 tok/s |
 | 8 路并发 | 517.5 tok/s |
 | 长输出（10496 tok）单路 / 8路 | 91.8 / 476.9 tok/s |
-| PPL all（wikitext2-en/fineweb2-da/code 33k tok） | 8.087（参考 BF16 档 8.045） |
-| GSM8K-200 | 93.5% |
-| HumanEval-164 | 见 EVIDENCE_LOG（评测中） |
+| PPL all（wikitext2-en/fineweb2-da/code 33k tok） | 8.0845（历史 BF16 参考档 8.045） |
+| GSM8K-200 | 94.0% |
+| HumanEval-164 pass@1 | 79.9% |
+| IFBench-300 thinking（60K budget，xhigh，temp1.0/top-p0.95/top-k20） | strict 72.7 / loose 79.3 |
+| 显存占用（权重） | ~15 GB |
+
+IFBench 口径说明：no-think 512 token 协议仅 0.40（预算不足）；xhigh 思维链 47% 超 8192，
+32K 预算产生 7 条空响应（strict 71.3），60K 预算 0 空响应（strict 72.7 / loose 79.3）。
+
+### 量化方案对比（同机同栈实测）
+
+| 方案 | 权重显存 | 单路 tok/s | 8路 tok/s | PPL all | GSM8K | HumanEval |
+|---|---|---|---|---|---|---|
+| **Q4 W4A16 + MTP4（本 release）** | ~15 GB | **93.3** | **517.5** | 8.0845 | 94.0% | 79.9% |
+| W8A16 + MTP4（实验） | ~28 GB | 52.4 | 337.9 | 7.7681 | 95.5% | 79.9% |
+| FP8 官方动态量化 + MTP4 | ~29 GB | 45.1 | 300.3 | 7.792 | 95.5% | — |
+| Q8_0 GGUF（llama.cpp + MTP） | ~29 GB | 22.4 | 65.6 | 6.55* | 96.5% | — |
+
+*llama.cpp 滑窗 PPL 口径，与 vLLM completion 口径不可直接比较。
+
+单路 decode 与权重字节数严格成正比（1430 tok·GB/s 常数：93.3×15.3 ≈ 52.4×27.3），
+sm_86 单路场景完全带宽 bound；FP8 在 sm_86 无 tensor core 加速。
+
+### KV 容量与长上下文
+
+- 单请求上下文上限 262144 tokens
+- 全注意力层 KV：bf16 64 KB / int8 32 KB 每 token
+- KV 总容量 = GPU 16.5 GB（bf16，257k tok）+ CPU offload 96 GB ≈ 1.75M tokens
+- 超显存并发（6×100k tok 实测）：请求排队串行化，0 抢占 0 崩溃，decode 88–122 tok/s 不降速
+- offload 重访 TTFT 3.2–4 s vs 冷启动 81 s（25×）
 
 ## 启动命令（最终形态）
 
@@ -56,10 +85,13 @@ vllm serve <checkpoint_dir> \
 - 随机 token benchmark 高估投机收益——用真实 prompt
 - draft 词表必须用模型自身输出统计（单项最大提速 +10%）
 - thinking 评测 max_tokens ≥32768（xhigh 思维链 47% 超 8192 预算）
-- 单请求上下文上限 262144 tokens；KV 总容量 = GPU(257k tok bf16) + CPU offload（96GB → ~1.75M tok）
 
 ## 对比结论（A6000）
 
-Q4 W4A16 是速度/质量/显存最优平衡：FP8 质量略好（GSM8K +2pp）但 sm_86 无 FP8 tensor core
-速度腰斩（45 vs 93 tok/s）；Q8_0 GGUF GSM8K 最高（96.5%）但 llama.cpp 工程性能远逊（22 tok/s）。
-Q4→Q8 质量差距仅 ~1% PPL。
+Q4 W4A16 是速度/质量/显存最优平衡：
+
+- **FP8**：质量略好（GSM8K +1.5pp）但 sm_86 无 FP8 tensor core，速度腰斩（45 vs 93 tok/s）
+- **W8A16**：质量打平 FP8（PPL 7.77），速度优于 FP8（+16%/+12%），但单路仍只有 Q4 的 56%
+  （带宽 bound，权重 2×）；Marlin int8 tensor core 收益在 8 路以上并发才显现
+- **Q8_0 GGUF**：GSM8K 最高（96.5%）但 llama.cpp 工程性能远逊（22 tok/s 单路，8 路 65.6）
+- Q4→W8 质量差距：PPL +4%，GSM8K −1.5pp，HumanEval 持平
