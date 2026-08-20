@@ -32,11 +32,17 @@ Release `v1.0.0-q4-w4a16` assets 包含 10 个 safetensors 分片（≤2GB/片�
 | PPL all（wikitext2-en/fineweb2-da/code 33k tok） | 8.0845（历史 BF16 参考档 8.045） |
 | GSM8K-200 | 94.0% |
 | HumanEval-164 pass@1 | 79.9% |
-| IFBench-300 thinking（60K budget，xhigh，temp1.0/top-p0.95/top-k20） | strict 72.7 / loose 79.3 |
+| IFBench-300 thinking（60K budget，xhigh，temp1.0/top-p0.95/top-k20） | **strict 77.7 / loose 80.7** |
 | 显存占用（权重） | ~15 GB |
 
 IFBench 口径说明：no-think 512 token 协议仅 0.40（预算不足）；xhigh 思维链 47% 超 8192，
-32K 预算产生 7 条空响应（strict 71.3），60K 预算 0 空响应（strict 72.7 / loose 79.3）。
+32K 预算产生 7 条空响应（strict 71.3），60K 预算 0 空响应。
+
+**采集 artifact 修正（2026-08-21）**：此前 IFBench 数字（strict 72.7）被响应采集 artifact 污染——
+qwen3 reasoning parser 会把 `</think>` 后的 `\n\n` 分隔符留在 content 里，空白敏感的 strict 检查
+（`format:no_whitespace`、`format:line_indent` 等）因此误判。对*同一批响应*做首尾空白清理
+（所有标准 harness 的默认行为）后重评即得上表数字。`scripts/fair_gen2.py` 已在采集端修复。
+同一官方 eval 下的参照点：Qwen 官方卡 BF16 strict **79.5**，syv-ai W4A16 栈 strict 78.3。
 
 ### M1 混合位宽（down_proj→int8，实验档，质量优先）
 
@@ -50,7 +56,12 @@ IFBench 口径说明：no-think 512 token 协议仅 0.40（预算不足）；xhi
 | GSM8K-200 | **95.5%** | 94.0% | 95.5% |
 | HumanEval-164 pass@1 | **81.1%** | 79.9% | 79.9% |
 | MTP 接受长度 | **3.07** | 2.90 | 2.82 |
+| IFBench-300 全量 strict / loose（strip 干净口径） | **79.0 / 84.0** | 77.7 / 80.7 | — |
 | IFBench fail82 子集 strict（Q4 全错的 82 题） | **24/82 = 29.3%** | 0/82 | FP8 档 17/82 = 20.7% |
+
+M1 全量 300 在 GDN spec-decode 状态回滚边界修复（`patches/` 中 vLLM PR50021 回植）后测得；
+修复前检查点同协议为 78.3 / 82.3。对比官方卡 BF16 strict 79.5：**M1 量化栈与未量化模型差 0.5 分，
+在运行间噪声范围内（temp 1.0 下 σ≈2.4）**。
 
 构建脚本：`scripts/build_m1_hybrid.py`（硬链接复制 + 从 BF16 重量化 down_proj + config 前插 group_d8）。
 

@@ -8,8 +8,8 @@
 
 Usage:
   python fair_gen2.py --api-base http://127.0.0.1:8002/v1 \
-      --model qwen3.8-27b-dspark --api-key sk-your-api-key \
-      --input /opt/IFBench/data/IFBench_test.jsonl \
+      --model qwen3.8-27b-dspark --api-key sk-qwen38-dspark-dev \
+      --input /mnt/6/wangzihan/IFBench/data/IFBench_test.jsonl \
       --output out.jsonl --max-tokens 32768 --temperature 1.0 --thinking \
       --concurrency 6
 """
@@ -51,7 +51,7 @@ def gen_one(args, idx, prompt, outf):
         try:
             t0 = time.time()
             content = chat(args.api_base, args.model, args.api_key, prompt,
-                           args.max_tokens, args.temperature, args.thinking)
+                           args.max_tokens, args.temperature, args.thinking).strip()
             if content.strip():
                 rec = {"idx": idx, "prompt": prompt, "response": content,
                        "elapsed": round(time.time() - t0, 2), "error": None}

@@ -36,12 +36,21 @@ Download all shards and place them together with the small files from this repo
 | PPL all (wikitext2-en/fineweb2-da/code 33k tok) | 8.0845 (historical BF16 ref 8.045) |
 | GSM8K-200 | 94.0% |
 | HumanEval-164 pass@1 | 79.9% |
-| IFBench-300 thinking (60K budget, xhigh, temp1.0/top-p0.95/top-k20) | strict 72.7 / loose 79.3 |
+| IFBench-300 thinking (60K budget, xhigh, temp1.0/top-p0.95/top-k20) | **strict 77.7 / loose 80.7** |
 | Weight memory | ~15 GB |
 
 IFBench protocol note: no-think 512-token protocol scores only 0.40 (insufficient budget);
 47% of xhigh thinking chains exceed 8192 tokens. 32K budget produced 7 empty responses
-(strict 71.3); 60K budget has 0 empty responses (strict 72.7 / loose 79.3).
+(strict 71.3); 60K budget has 0 empty responses.
+
+**Capture-artifact correction (2026-08-21):** earlier IFBench numbers (strict 72.7) were
+polluted by a response-capture artifact — the qwen3 reasoning parser leaves the `\n\n`
+separator after `</think>` inside `content`, and whitespace-sensitive strict checks
+(`format:no_whitespace`, `format:line_indent`, …) counted those prompts as failures.
+Re-scoring the *same responses* with leading/trailing whitespace stripped (what every
+standard harness does) gives the values above. `scripts/fair_gen2.py` now strips at
+capture time. Reference points under the same official eval: Qwen model card BF16
+strict **79.5**, syv-ai W4A16 stack strict 78.3.
 
 ### M1 hybrid precision (down_proj→int8, experimental quality-first variant)
 
@@ -56,7 +65,13 @@ still above the 80 tok/s single-stream bar.
 | GSM8K-200 | **95.5%** | 94.0% | 95.5% |
 | HumanEval-164 pass@1 | **81.1%** | 79.9% | 79.9% |
 | MTP acceptance length | **3.07** | 2.90 | 2.82 |
+| IFBench-300 full strict / loose (strip-cleaned) | **79.0 / 84.0** | 77.7 / 80.7 | — |
 | IFBench fail82 subset strict (the 82 prompts Q4 failed) | **24/82 = 29.3%** | 0/82 | FP8 tier 17/82 = 20.7% |
+
+M1 full-300 IFBench measured with the GDN spec-decode state-rollback bounds fix
+(vLLM PR50021 backport in `patches/`); pre-fix checkpoint scored 78.3 / 82.3 on the
+same protocol. vs Qwen model card BF16 strict 79.5: **the M1 quantization stack is
+within 0.5 pt of the unquantized model, inside run-to-run noise (σ≈2.4 at temp 1.0)**.
 
 Build script: `scripts/build_m1_hybrid.py` (hardlink copy + requantize down_proj from BF16 +
 prepend `group_d8` in config_groups).
