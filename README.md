@@ -2,6 +2,9 @@
 
 **Private release.** 本仓库发布 Q4(W4A16) 正式版 checkpoint 及配套优化补丁。
 
+> 本项目基于 [syv-ai/qwen38-27b-rtx3090](https://github.com/syv-ai/qwen38-27b-rtx3090) 的模型与评测体系，
+> 在其基础上针对 A6000（sm_86）做了量化/投机解码/kernel 级优化。感谢上游工作。
+
 ## Checkpoint: model_mtp_opt
 
 基于 Qwen3.8-27B（混合架构：48× linear attention + 16× full attention, interval=4, 64 layers）：
@@ -14,7 +17,7 @@
 Release `v1.0.0-q4-w4a16` assets 包含 10 个 safetensors 分片（≤2GB/片，GitHub 限制），
 下载全部分片后与仓库内小文件（config/tokenizer/index 等）放同一目录即可加载。
 
-## 基准测试（164 服务器，A6000 48GB sm_86，vLLM 0.26 + patches/）
+## 基准测试（测试服务器，A6000 48GB sm_86，vLLM 0.26 + patches/）
 
 ### Q4 最终栈（本 release checkpoint + 全部补丁）
 
@@ -32,11 +35,28 @@ Release `v1.0.0-q4-w4a16` assets 包含 10 个 safetensors 分片（≤2GB/片�
 IFBench 口径说明：no-think 512 token 协议仅 0.40（预算不足）；xhigh 思维链 47% 超 8192，
 32K 预算产生 7 条空响应（strict 71.3），60K 预算 0 空响应（strict 72.7 / loose 79.3）。
 
+### M1 混合位宽（down_proj→int8，实验档，质量优先）
+
+主干 4bit 不变，全部 64 层 `down_proj`（residual stream 注入点，量化最敏感层类）升为 int8 g128；
+带宽预算 17GB/步，仍在单路 80 tok/s 门槛内。
+
+| 指标 | M1 | Q4 | W8A16 |
+|---|---|---|---|
+| 单路 / 8路 tok/s | **85.0 / 475.0** | 93.3 / 517.5 | 52.4 / 337.9 |
+| PPL all | 8.0242 | 8.0845 | 7.7681 |
+| GSM8K-200 | **95.5%** | 94.0% | 95.5% |
+| HumanEval-164 pass@1 | **81.1%** | 79.9% | 79.9% |
+| MTP 接受长度 | **3.07** | 2.90 | 2.82 |
+| IFBench fail82 子集 strict（Q4 全错的 82 题） | **24/82 = 29.3%** | 0/82 | FP8 档 17/82 = 20.7% |
+
+构建脚本：`scripts/build_m1_hybrid.py`（硬链接复制 + 从 BF16 重量化 down_proj + config 前插 group_d8）。
+
 ### 量化方案对比（同机同栈实测）
 
 | 方案 | 权重显存 | 单路 tok/s | 8路 tok/s | PPL all | GSM8K | HumanEval |
 |---|---|---|---|---|---|---|
 | **Q4 W4A16 + MTP4（本 release）** | ~15 GB | **93.3** | **517.5** | 8.0845 | 94.0% | 79.9% |
+| **M1 混合位宽 + MTP4（实验档）** | ~17 GB | 85.0 | 475.0 | 8.0242 | **95.5%** | **81.1%** |
 | W8A16 + MTP4（实验） | ~28 GB | 52.4 | 337.9 | 7.7681 | 95.5% | 79.9% |
 | FP8 官方动态量化 + MTP4 | ~29 GB | 45.1 | 300.3 | 7.792 | 95.5% | — |
 | Q8_0 GGUF（llama.cpp + MTP） | ~29 GB | 22.4 | 65.6 | 6.55* | 96.5% | — |

@@ -1,8 +1,8 @@
 # DSpark Q4 WNA16 GPU2 优化报告（第三轮：kernel 实验 + 长稳压力测试）
 
 ## 独立工作副本
-- `/mnt/6/wangzihan/dspark_dev_vllm`
-- 未修改官方路径：`/mnt/6/wangzihan/qwen38_27b/site_vllm021`、`/mnt/6/wangzihan/qwen38_27b` 现有配置、`/mnt/6/wangzihan/deepseek-harness` 均未触碰。
+- `/opt/dspark_dev_vllm`
+- 未修改官方路径：`/opt/qwen38_27b/site_vllm021`、`/opt/qwen38_27b` 现有配置、`/opt/workspace/deepseek-harness` 均未触碰。
 
 ## 实际改动的文件（仅限副本内）
 | 文件 | 说明 |
@@ -25,10 +25,10 @@
 ## 最终配置（当前 GPU2 服务）
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
-PYTHONPATH=/mnt/6/wangzihan/dspark_dev_vllm \
+PYTHONPATH=/opt/dspark_dev_vllm \
 VLLM_USE_FLASHINFER_SAMPLER=0 \
-/mnt/5/wangzihan/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
-  --model /mnt/6/wangzihan/qwen38_27b/model_autoread \
+/opt/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
+  --model /opt/qwen38_27b/model_autoread \
   --served-model-name qwen3.8-27b-dspark \
   --host 0.0.0.0 --port 8002 \
   --tensor-parallel-size 1 \
@@ -39,7 +39,7 @@ VLLM_USE_FLASHINFER_SAMPLER=0 \
   --enable-chunked-prefill --enable-prefix-caching \
   --kv-cache-dtype int8_per_token_head \
   --compilation-config '{"cudagraph_capture_sizes":[1,8,16,24,32,40,48,56],"max_cudagraph_capture_size":56}' \
-  --speculative-config '{"method":"dspark","model":"/mnt/6/wangzihan/Doopeworld_Qwen3.8-27B-DSpark-vLLM","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}'
+  --speculative-config '{"method":"dspark","model":"/opt/models/Doopeworld_Qwen3.8-27B-DSpark-vLLM","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}'
 ```
 
 ## Kernel 深度优化实验结果（均回滚）
@@ -143,7 +143,7 @@ VLLM_USE_FLASHINFER_SAMPLER=0 \
 - API server PID：**2885112**
 - EngineCore PID：**2885296**
 - 当前配置：**max_model_len=220000 + CPU KV offload**
-- 日志：`/mnt/6/wangzihan/dspark_dev_vllm/gpu2_dspark.log`
+- 日志：`/opt/dspark_dev_vllm/gpu2_dspark.log`
 - 长上下文测试后服务仍正常运行，未重启。
 
 ## 后续建议

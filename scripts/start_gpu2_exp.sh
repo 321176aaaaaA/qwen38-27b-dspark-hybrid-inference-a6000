@@ -7,31 +7,31 @@ MAX_SEQS="${2:-4}"
 NST="${NST:-7}"
 DRAFT_SAMPLE="${DRAFT_SAMPLE:-probabilistic}"
 FI_SAMPLER="${FI_SAMPLER:-0}"
-DEV=/mnt/6/wangzihan/dspark_dev_vllm
-BASE=/mnt/6/wangzihan/qwen38_27b
+DEV=/opt/dspark_dev_vllm
+BASE=/opt/qwen38_27b
 MODEL_DIR="${MODEL_DIR_OVERRIDE:-$BASE/model_autoread}"
-DRAFT_DIR=/mnt/6/wangzihan/Doopeworld_Qwen3.8-27B-DSpark-vLLM
-CUDA_ENV=/mnt/6/wangzihan/cuda_env
+DRAFT_DIR=/opt/models/Doopeworld_Qwen3.8-27B-DSpark-vLLM
+CUDA_ENV=/opt/workspace/cuda_env
 mkdir -p "$DEV/logs_exp"
 LOG="$DEV/logs_exp/gpu2_${MODE}_$(date +%m%d_%H%M).log"
 PID_FILE="$DEV/gpu2_exp.pid"
 
-export HOME=/mnt/6/wangzihan
+export HOME=/opt/workspace
 export PYTHONPATH="$DEV"
 export CUDA_VISIBLE_DEVICES=2
 export OMP_NUM_THREADS=16
 export HF_HOME="$BASE/hf_cache"
 export VLLM_LOGGING_LEVEL=INFO
-export VLLM_CACHE_ROOT=/mnt/6/wangzihan/vllm_cache
-export TRITON_CACHE_DIR=/mnt/6/wangzihan/triton_cache
+export VLLM_CACHE_ROOT=/opt/workspace/vllm_cache
+export TRITON_CACHE_DIR=/opt/workspace/triton_cache
 export VLLM_USE_FLASHINFER_SAMPLER="$FI_SAMPLER"
 export VLLM_SPEC_DECODE_ATTN="${SPEC_ATTN:-0}"
-export CC=/mnt/5/wangzihan/toolchains/bin/gcc
-export CXX=/mnt/5/wangzihan/toolchains/bin/g++
-export CPATH=/mnt/5/wangzihan/toolchains/py312/include/python3.12
+export CC=/opt/toolchains/bin/gcc
+export CXX=/opt/toolchains/bin/g++
+export CPATH=/opt/toolchains/py312/include/python3.12
 export CUDA_HOME="$CUDA_ENV"
 export CUDA_PATH="$CUDA_ENV"
-export PATH="/mnt/6/wangzihan/build_env/bin:$CUDA_ENV/bin:$PATH"
+export PATH="/opt/workspace/build_env/bin:$CUDA_ENV/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_ENV/lib:${LD_LIBRARY_PATH:-}"
 
 # stop existing exp/dspark server (kill whole session groups incl. EngineCore)
@@ -85,7 +85,7 @@ elif [ "$MODE" = "mtp" ]; then
 fi
 
 cd "$DEV"
-setsid /mnt/5/wangzihan/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
+setsid /opt/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL_DIR" \
   --served-model-name qwen3.8-27b-dspark \
   --host 0.0.0.0 \
@@ -102,7 +102,7 @@ setsid /mnt/5/wangzihan/toolchains/py312/bin/python -m vllm.entrypoints.openai.a
   --kv-offloading-backend native \
   --compilation-config "$COMP_CFG" \
   "${SPEC_ARGS[@]}"   "${MAMBA_FLAG[@]}" \
-  --api-key sk-qwen38-dspark-dev   --reasoning-parser qwen3   --default-chat-template-kwargs '{"enable_thinking": true, "reasoning_effort": "xhigh"}' \
+  --api-key sk-your-api-key   --reasoning-parser qwen3   --default-chat-template-kwargs '{"enable_thinking": true, "reasoning_effort": "xhigh"}' \
   --trust-remote-code \
   > "$LOG" 2>&1 < /dev/null &
 

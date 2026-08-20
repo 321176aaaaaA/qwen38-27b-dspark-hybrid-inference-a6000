@@ -10,7 +10,7 @@ from threading import Barrier
 
 BASE = "http://127.0.0.1:8002/v1"
 MODEL = "qwen3.8-27b-dspark"
-API_KEY = "sk-qwen38-dspark-dev"
+API_KEY = "sk-your-api-key"
 
 
 def chat_once(max_tokens=256, timeout=600):

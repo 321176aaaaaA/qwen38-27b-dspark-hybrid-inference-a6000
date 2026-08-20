@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Start Q4 DSpark on GPU2 from the isolated dev copy.
-DEV=/mnt/6/wangzihan/dspark_dev_vllm
-BASE=/mnt/6/wangzihan/qwen38_27b
+DEV=/opt/dspark_dev_vllm
+BASE=/opt/qwen38_27b
 MODEL_DIR="$BASE/model_autoread"
-DRAFT_DIR=/mnt/6/wangzihan/Doopeworld_Qwen3.8-27B-DSpark-vLLM
-CUDA_ENV=/mnt/6/wangzihan/cuda_env
+DRAFT_DIR=/opt/models/Doopeworld_Qwen3.8-27B-DSpark-vLLM
+CUDA_ENV=/opt/workspace/cuda_env
 LOG="$DEV/gpu2_dspark.log"
 PID_FILE="$DEV/gpu2_dspark.pid"
 
-export HOME=/mnt/6/wangzihan
+export HOME=/opt/workspace
 export PYTHONPATH="$DEV"
 export CUDA_VISIBLE_DEVICES=2
 export OMP_NUM_THREADS=16
 export HF_HOME="$BASE/hf_cache"
 export VLLM_LOGGING_LEVEL=INFO
-export VLLM_CACHE_ROOT=/mnt/6/wangzihan/vllm_cache
-export TRITON_CACHE_DIR=/mnt/6/wangzihan/triton_cache
+export VLLM_CACHE_ROOT=/opt/workspace/vllm_cache
+export TRITON_CACHE_DIR=/opt/workspace/triton_cache
 export VLLM_USE_FLASHINFER_SAMPLER=0
-export CC=/mnt/5/wangzihan/toolchains/bin/gcc
-export CXX=/mnt/5/wangzihan/toolchains/bin/g++
-export CPATH=/mnt/5/wangzihan/toolchains/py312/include/python3.12
+export CC=/opt/toolchains/bin/gcc
+export CXX=/opt/toolchains/bin/g++
+export CPATH=/opt/toolchains/py312/include/python3.12
 export CUDA_HOME="$CUDA_ENV"
 export CUDA_PATH="$CUDA_ENV"
-export PATH="/mnt/6/wangzihan/build_env/bin:$CUDA_ENV/bin:$PATH"
+export PATH="/opt/workspace/build_env/bin:$CUDA_ENV/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_ENV/lib:${LD_LIBRARY_PATH:-}"
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
@@ -32,7 +32,7 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
 fi
 
 cd "$DEV"
-setsid /mnt/5/wangzihan/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
+setsid /opt/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL_DIR" \
   --served-model-name qwen3.8-27b-dspark \
   --host 0.0.0.0 \
@@ -49,7 +49,7 @@ setsid /mnt/5/wangzihan/toolchains/py312/bin/python -m vllm.entrypoints.openai.a
   --kv-offloading-backend native \
   --compilation-config "{\"cudagraph_capture_sizes\":[1,8,16,24,32,40,48,56,64,72,80,84],\"max_cudagraph_capture_size\":84}" \
   --speculative-config "{\"method\":\"dspark\",\"model\":\"$DRAFT_DIR\",\"num_speculative_tokens\":7,\"draft_sample_method\":\"probabilistic\"}" \
-  --api-key sk-qwen38-dspark-dev \
+  --api-key sk-your-api-key \
   --trust-remote-code \
   > "$LOG" 2>&1 < /dev/null &
 

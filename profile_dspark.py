@@ -6,15 +6,15 @@ import sys
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "2")
 os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
-os.environ.setdefault("VLLM_CACHE_ROOT", "/mnt/6/wangzihan/vllm_cache")
-os.environ.setdefault("TRITON_CACHE_DIR", "/mnt/6/wangzihan/triton_cache")
-os.environ.setdefault("HOME", "/mnt/6/wangzihan")
+os.environ.setdefault("VLLM_CACHE_ROOT", "/opt/workspace/vllm_cache")
+os.environ.setdefault("TRITON_CACHE_DIR", "/opt/workspace/triton_cache")
+os.environ.setdefault("HOME", "/opt/workspace")
 
 from vllm import LLM, SamplingParams  # noqa: E402
 
-MODEL = "/mnt/6/wangzihan/qwen38_27b/model_autoread"
-DRAFT = "/mnt/6/wangzihan/Doopeworld_Qwen3.8-27B-DSpark-vLLM"
-PROF_DIR = "/mnt/6/wangzihan/dspark_dev_vllm/prof_trace"
+MODEL = "/opt/qwen38_27b/model_autoread"
+DRAFT = "/opt/models/Doopeworld_Qwen3.8-27B-DSpark-vLLM"
+PROF_DIR = "/opt/dspark_dev_vllm/prof_trace"
 
 def main():
     llm = LLM(
