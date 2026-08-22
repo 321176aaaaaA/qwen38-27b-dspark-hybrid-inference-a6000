@@ -52,7 +52,7 @@ setsid python3 -m vllm.entrypoints.openai.api_server \
   --kv-offloading-size 96 \
   --kv-offloading-backend native \
   --attention-backend triton_attn \
-  --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
+  --speculative-config '{"method":"mtp","num_speculative_tokens":4}' \
   --compilation-config '{"cudagraph_mode":"piecewise","custom_ops":["+rms_norm","+silu_and_mul"]}' \
   --api-key "$API_KEY" \
   --reasoning-parser qwen3 \

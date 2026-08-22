@@ -247,3 +247,25 @@ prefill 侧：两轮 BM×T×w×s 扫描（4req×q2048，kv 50K/150K）确认已�
 - **缺口 = lookahead prefetch**：运行中请求不会预取未来 chunk；被抢占请求重新准入时才同步等 swap-in。最小改动点在 `offloading/scheduler.py` 复用 `submit_load` 异步管线，唯一侵入点是预取目标 GPU block 需 KVCacheManager 预分配
 - 低成本动作：`--kv-offloading-size` 96→256GB（pinned 内存，2TB RAM 可承受），扩大二级前缀缓存+深窗溢出余量
 - 已否决：CPU 卸载权重（200GB/s vs GPU 700GB/s 净负）、CPU 活跃 KV（PCIe 25GB/s vs HBM 768GB/s）
+
+## 2026-08-22d nst=4 + KV 行 16B 对齐（生产已切）
+
+**动机**：nst=4 单路深上下文 +33%，但 8 路聚合 -7%（多一拍 draft + verify batch 40）。
+根因定位：int4 KV 行 = 128B 数据 + 4B scale = **132B，不对齐 16B** → 向量化 16B 加载全部退化为窄加载，
+spec kernel 带宽被锁在 75-95 GB/s。
+
+**修复（三处，已上生产 site_vllm021，备份 `.bak-pad144-0822`）**：
+- `triton_attn.py::get_kv_cache_shape`：int4 行 132→**144B**（尾部补 12B，布局 `[data|scale|pad]`）
+- `triton_attn.py::_ensure_scale_caches`：int4 的 scale 偏移固定为 `head_size//2`（不再由 `padded_hs-4` 反推）
+- `kv_cache_interface.py::unpadded_page_size_bytes`：int4 页预算按 144B 行计算（分配侧与视图侧一致）
+- `spec_decode_attn.py::_run_int4`：断言放宽接受 `DP+16`
+
+**效果**（spec kernel 微基准，生产 NHD 布局，8req×q4，T32/nseg32）：
+15K: 1.179→1.005 ms/层 (+17%)；40K: 2.078→1.592 ms/层 (+31%, 163→212 GB/s)。
+代价：KV 容量 1.11M→0.99M tok（4.48x@220K，仍安全）。
+
+**生产配方更新**：`num_speculative_tokens` 3→**4**。
+**质量门禁**：GPQA-32 = 30/32 = **93.8%**，错题集 {17,30} 与 int8/int4 基线完全一致（首轮 29/32 差 Q13，复测翻转，确认采样噪声）。
+**单元回归**：test_spec_int4 / test_spec_int4_insitu（pad=16 布局）全 PASS。
+**实测**（生产，nst4+144B+offload96）：单路 54 t/s（短）；8 路 ×14K 稳态 238-405 t/s，
+与 nst=3 基线持平 —— nst=4 的 8 路回归被对齐优化补回，净赚单路/低并发收益。

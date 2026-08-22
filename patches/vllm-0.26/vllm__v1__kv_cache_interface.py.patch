@@ -1,0 +1,22 @@
+--- a/vllm/v1/kv_cache_interface.py
++++ b/vllm/v1/kv_cache_interface.py
+@@ -183,6 +183,19 @@
+ 
+     @property
+     def unpadded_page_size_bytes(self) -> int:
++        if self.kv_quant_mode == KVQuantMode.INT4_PER_TOKEN_HEAD:
++            # Row layout is [packed data | fp32 scale | tail pad] with the row
++            # padded to a 16B multiple so vectorized loads stay aligned (see
++            # TritonAttentionBackend.get_kv_cache_shape).  The budget must
++            # match the padded view shape exactly.
++            row_bytes = (self.head_size // 2 + get_dtype_size(torch.float32) + 15) // 16 * 16
++            return (
++                2
++                * self.block_size
++                * self.num_kv_heads
++                * row_bytes
++                * get_dtype_size(self.dtype)
++            )
+         unpadded = self.real_page_size_bytes
+         # Per-token-head scales are stored in separate tensors managed
+         # by the attention backend, but the memory is carved from the

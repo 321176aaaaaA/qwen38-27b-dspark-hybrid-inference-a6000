@@ -592,7 +592,7 @@ class SpecDecodeAttention:
         # (reached via the separate scale views, never through the data view),
         # so accept both D//2 (standalone tests) and D//2+4 (live cache).
         DP = D // 2
-        assert key_cache.shape[3] in (DP, DP + 4) and value_cache.shape[3] in (DP, DP + 4), \
+        assert key_cache.shape[3] in (DP, DP + 4, DP + 16) and value_cache.shape[3] in (DP, DP + 4, DP + 16), \
             f"int4 packed cache last dim {key_cache.shape[3]} must be head_dim//2 (+4B scale pad)"
         q = (q * scale).to(out_dtype)
         Hkv = key_cache.shape[2]
