@@ -224,3 +224,26 @@ A/B 实测（GPU2，8 路 × 13.8K ctx × 3000 tok，cache 热 decode-only）：
 
 prefill 侧：两轮 BM×T×w×s 扫描（4req×q2048，kv 50K/150K）确认已部署的 BM=64/T=64/w=8
 即最优（150K 1297ms vs 最佳挑战者 1272ms，噪声内；BM=128 寄存器溢出灾难 2-4 GB/s），保持不动。
+
+## 2026-08-22c 多并发压榨实验矩阵（GPU2 A/B，生产同配方 int4+MTP+T32/nseg32）
+
+基线（nst=3, max-seqs=8）：单路短 61.4 / 单路深(14K) 55.5 tok/s；8 路 30.9 tok/s/路、聚合 240 tok/s。
+
+| 实验 | 结果 | 结论 |
+|---|---|---|
+| MTP_NST=4 | 单路深 **74.0 (+33%)**、单路短 62.7 (+2%)；8 路聚合 224 (-7%) | 第 4 草案位接受率 0.4-0.5；低并发大赚、满并发小亏 |
+| MTP_NST=5 | 单路深 68.0；8 路聚合 189 (-21%) | 第 4/5 位接受率跌至 0.15-0.27，纯浪费 draft 算力，否决 |
+| max-seqs=12 | 12 路聚合 256 (+7%)、22.8/路 | 仅 marlin(权重读)不随并发增长，attn/GDN/draft 线性长 |
+| max-seqs=16 | 16 路聚合 222（反降）、17.7/路 | 过甜点，straggler 方差大，否决 |
+| GDN state fp8 | 不可行 | fork 的 MambaDType 仅 auto/fp32/f16/bf16，无 fp8；现为 bf16 且 kernel 疑似延迟绑定（195us/层@8req 仅 ~82GB/s），量化收益存疑，搁置 |
+| lm_head 量化 | 已是 Q4 | vocab 248320×5120 的 lm_head/embed 本来就是 compressed-tensors Q4（weight_packed），4 次/步共 2.5GB≈4.2ms 下限、实测 7ms，仅剩 marlin 大 N 配置微优化 ~2-3% |
+
+生产建议：保持 nst=3 + max-seqs 8（满并发最优）；若实际负载以 1-2 路为主可切 nst=4（单路深 +33%，8 路峰值 -7% 的取舍）。
+
+### CPU 2TB 内存方向（offloading connector 调研结论）
+
+- **CPU 前缀缓存命中已存在**：OffloadingConnector（native）store 是 proactive write-through（每 step 把新满 chunk 异步 D2H，不等驱逐），新请求 `get_num_new_matched_tokens` 会查 CPU 侧 block hash 并异步换回。生产 offload=96GB 已在享受此能力
+- 传输全异步（stream/event 池 + cuMemcpyBatchAsync），int4 packed 原始字节透传，天然兼容
+- **缺口 = lookahead prefetch**：运行中请求不会预取未来 chunk；被抢占请求重新准入时才同步等 swap-in。最小改动点在 `offloading/scheduler.py` 复用 `submit_load` 异步管线，唯一侵入点是预取目标 GPU block 需 KVCacheManager 预分配
+- 低成本动作：`--kv-offloading-size` 96→256GB（pinned 内存，2TB RAM 可承受），扩大二级前缀缓存+深窗溢出余量
+- 已否决：CPU 卸载权重（200GB/s vs GPU 700GB/s 净负）、CPU 活跃 KV（PCIe 25GB/s vs HBM 768GB/s）
