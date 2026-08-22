@@ -606,7 +606,10 @@ class SpecDecodeAttention:
         rows = max_query_len * G
         block_m = 16 if rows <= 16 else (32 if rows <= 32 else 64)
         if tile is None:
-            tile = 64 if (block_m <= 32 or D <= 128) else 32
+            # int4 live-layout sweep (8 reqs, 15K/40K/100K KV, q_len=4):
+            # TILE=32 beats 64 by 1.5-1.9x (strided NHD rows make wide tiles
+            # inefficient); see bench_spec_int4_live.py.
+            tile = 32
         kss = (k_scale_cache.stride(0), k_scale_cache.stride(1), k_scale_cache.stride(2))
         vss = (v_scale_cache.stride(0), v_scale_cache.stride(1), v_scale_cache.stride(2))
         grid = (num_reqs, Hkv * gsplit, self.nseg)

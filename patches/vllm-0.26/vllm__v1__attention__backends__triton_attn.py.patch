@@ -31,7 +31,7 @@
          unified_attention(
              q=query[:num_actual_tokens],
              k=key_cache,
-@@ -874,3 +898,110 @@
+@@ -874,3 +898,114 @@
              flash_layout,
              is_fp8_kv_cache,
          )
@@ -125,7 +125,11 @@
 +        except Exception:
 +            max_reqs = 256
 +        max_reqs = max(max_reqs, cu_seqlens_q.shape[0] - 1)
-+        att = SpecDecodeAttention(max_reqs, impl.num_heads, impl.head_size, q.device)
++        # int4 verify: nseg=32 wins at all KV lengths on the live NHD layout
++        # (1.5-1.9x vs nseg=16, bench_spec_int4_live.py); keep 16 for int8/bf16.
++        nseg = 32 if impl.kv_cache_dtype == "int4_per_token_head" else 16
++        att = SpecDecodeAttention(max_reqs, impl.num_heads, impl.head_size, q.device,
++                                  num_segments=nseg)
 +        _SPEC_ATTN[key] = att
 +    att.run(
 +        q,

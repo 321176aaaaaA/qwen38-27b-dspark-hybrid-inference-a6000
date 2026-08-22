@@ -199,3 +199,28 @@ int4+RHT（Hadamard 旋转摊平 K 通道 outlier + per-token-head 非对称 zp�
 cp /tmp/start_vllm_official_200k.sh.bak-int8-0822 /tmp/start_vllm_official_200k.sh
 # site_vllm021 三文件 .bak-int4-0822 备份在位；watchdog 30s 内自动拉起
 ```
+
+## 2026-08-22b spec-decode int4 decode 调参（生产布局实测）
+
+8 路并发 decode profile（torch profiler，13.8K ctx，cache 热）显示 GPU busy 97%，时间分布：
+`_spec_attn_partial_int4` 33.5%（1.47ms/层）> marlin Q4 GEMM 28%（已在显存带宽下限）> GDN update 12.5% > lm_head/draft 10%。
+
+微基准改用**生产真实布局**（physical NHD `(nb,bs,nkv,2*(DP+4))` + as_strided scale 视图，
+此前 bench 用的 block-major 布局结论失真），8 reqs × q_len=4 扫描 nseg×TILE×warps×stages×gsplit：
+
+| KV 长度 | 原默认 (nseg=16,T=64,w4,s1) | 最优 (nseg=32,T=32,w4,s1) | 加速 |
+|---|---|---|---|
+| 15K | 1.696 ms/层 (75 GB/s) | 1.092 ms (116 GB/s) | 1.55x |
+| 40K | 3.618 ms (93 GB/s) | 2.040 ms (166 GB/s) | 1.77x |
+| 100K | 8.895 ms (95 GB/s) | 4.559 ms (185 GB/s) | 1.95x |
+
+改动（已上生产 site_vllm021，备份 `.bak-t32-0822`）：
+- `spec_decode_attn.py::_run_int4`：int4 路径 TILE 默认 64→**32**（strided NHD 行访问下宽 tile 效率差）
+- `triton_attn.py::_spec_attn_run`：int4 KV 时构造 `SpecDecodeAttention(num_segments=32)`（int8/bf16 保持 16）
+
+A/B 实测（GPU2，8 路 × 13.8K ctx × 3000 tok，cache 热 decode-only）：
+**97s → 83s（decode +17%）**。正确性回归 `test_spec_int4.py` / `test_spec_int4_insitu.py` 全 PASS；
+生产四端点 200、8 路 256tok 冒烟 ~14.6s 无排队。
+
+prefill 侧：两轮 BM×T×w×s 扫描（4req×q2048，kv 50K/150K）确认已部署的 BM=64/T=64/w=8
+即最优（150K 1297ms vs 最佳挑战者 1272ms，噪声内；BM=128 寄存器溢出灾难 2-4 GB/s），保持不动。
