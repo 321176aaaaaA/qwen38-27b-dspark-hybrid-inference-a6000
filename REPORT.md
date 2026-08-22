@@ -154,3 +154,48 @@ VLLM_USE_FLASHINFER_SAMPLER=0 \
 2. GDN `fused_sigmoid_gating_delta_rule_update_kernel` 仍需针对 DSpark spec-decode 的多 token/request 形态做专门 kernel；简单的 warp/stages 调整无效。
 3. 可继续用 120 条 IFBench 作为标准质量集；后续每次 kernel 改动后跑同一 120 条对比。
 4. 长时间压测建议纳入 CI 门禁：1 小时 8 路无错误、显存平稳、吞吐无衰减。
+
+
+---
+
+## 2026-08-22 INT4 KV cache 上线（int4_per_token_head + spec-decode 路由）
+
+### 改动内容（patches/vllm-0.26 新增/更新）
+
+1. **`vllm__v1__attention__ops__int4_per_token_head.py.patch`**（对上游 stock 0.26.0）
+   - unified int4 kernel 的 split-dot 从 fp32 FMA 改为 **bf16 tensor core**（Q/K/V 值在 bf16 下精确表示，P_v 舍入与已验证 int8 路径同类）
+   - **prefill 读放大修复（关键）**：stock 启动器 `BLOCK_M=16 → BLOCK_Q=16//G=2`（GQA G=6），每 2 个 query token 就完整重读一遍 KV 上下文，深上下文 prefill 被打成带宽bound（profiler 实锤 `_attn_packed` 120ms/层·chunk @27K，有效带宽 373GB/s 封顶）。补丁：prefill 形状（max_seqlen_q>1）时 `BLOCK_M=64`（BLOCK_Q=10，KV 重读 ÷5）+ TILE 32→64 + num_warps=8
+2. **`vllm__v1__attention__backends__triton_attn.py.patch`**（对上游 stock 0.26.0）
+   - spec-decode split-KV verify hook（原有）+ **int4 路由**：int4 KV 时 hook 放行，`_spec_attn_run` 内接 RHT 旋转/逆旋转（复用 `int4_per_token_head.single_rht`，利用 RHT 线性性把 scale/D 折叠进 q）
+   - 环境旋钮 `VLLM_SPEC_DECODE_INT4`（默认 1；=0 回退 unified int4 慢速稳态路径）
+3. **`NEW__vllm__v1__attention__ops__spec_decode_attn.py` 更新**：新增 `_spec_attn_partial_int4` kernel（nibble 解包 + zp 隐写解析 + split-dot 双累加器），镜像 unified int4 语义
+4. **`scripts/start_vllm_official_200k_int4.sh`**：生产启动脚本（int4 + max-seqs 8 + max-num-batched-tokens 3136）
+
+### 启动注意事项
+
+- `--max-num-batched-tokens` 必须 **≥3136**（int4 下 mamba align block_size=3136，否则启动 assert）
+- in-situ KV 布局为 `(nb, nkv, bs, 2*(D/2+4))` uint8：每个 (token,head) 行尾部内联 4B fp32 scale（zp 藏进 mantissa 低 4 位），K/V 打包在同一 content 维；读路径经 `transpose(1,2).split` 视图 + as_strided fp32 scale 视图
+
+### 验证结果（A6000 sm86, qwen3.8-27b W4A16 + MTP3）
+
+| 验证项 | int4 结果 | 对照 (int8) |
+|---|---|---|
+| KV 容量 | **1,112,790 tok（220K 并发 5.06x）** | 596,352 tok（2.71x） |
+| GPQA diamond 32 题子集（temp0.6 xhigh） | **30/32 = 93.8%** | 30/32 = 93.8%（**错题集合完全相同**） |
+| NIAH 5 针 @189,728 tok（temp 0） | **5/5** | 5/5 |
+| 4×193K 并发 soak（各生成 2000 tok） | 全部完成零崩溃，~24min/路 | — |
+| 55K prefill | 49.6s（1112 t/s） | 55.6s（1004 t/s） |
+| 82.7K prefill+200tok | 90.8s | 105.4s |
+| 短上下文 decode | 44.0 tok/s | 50.2 tok/s（短上下文 int4 verify kernel 略慢，长上下文反超） |
+| 8 路并发 256tok | 全路 ~10s 完成无排队 | max-seqs 5 时排队 |
+
+### 质量结论
+
+int4+RHT（Hadamard 旋转摊平 K 通道 outlier + per-token-head 非对称 zp）在本模型上 **质量无损**：GPQA 错题集合与 int8 完全一致，190K 深上下文针召回 5/5 持平。FP4(nvfp4) 已否决（vLLM 硬绑 SM100 trtllm-gen 路径；且文献显示 ≤120B 模型 FP4 KV 在 GPQA/AIME 类硬推理上崩塌）。K8V4 暂缓（RHT 已覆盖 K 保护的大部分收益，容量退回 0.75x 不划算）。
+
+### 回退
+
+```bash
+cp /tmp/start_vllm_official_200k.sh.bak-int8-0822 /tmp/start_vllm_official_200k.sh
+# site_vllm021 三文件 .bak-int4-0822 备份在位；watchdog 30s 内自动拉起
+```

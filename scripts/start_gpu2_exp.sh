@@ -66,6 +66,12 @@ sleep 3
 
 SPEC_ARGS=()
 MAMBA_FLAG=()
+PC_FLAG=()
+OFFLOAD_FLAG=()
+PROF_FLAG=()
+if [ "${PROFILER:-0}" = "1" ]; then PROF_FLAG=(--profiler-config '{"profiler":"torch","torch_profiler_dir":"/opt/workspace/prof","torch_profiler_with_stack":false}'); fi
+if [ "${OFFLOAD_SIZE:-96}" != "0" ]; then OFFLOAD_FLAG=(--kv-offloading-size "${OFFLOAD_SIZE:-96}" --kv-offloading-backend native); fi
+if [ "${PREFIX_CACHING:-1}" = "0" ]; then PC_FLAG=(--no-enable-prefix-caching); fi
 [ -n "${MAMBA_DTYPE:-}" ] && MAMBA_FLAG=(--mamba-ssm-cache-dtype "$MAMBA_DTYPE")
 # cudagraph capture 上限需覆盖 max_num_seqs*(1+nst)：dspark nst=7 -> 8x; mtp nst=3 -> 4x
 if [ "$MAX_SEQS" -le 4 ]; then
@@ -78,6 +84,9 @@ fi
 COMP_CFG="{\"cudagraph_capture_sizes\":${CAPS},\"max_cudagraph_capture_size\":${CAPMAX}}"
 if [ "$MODE" = "dspark" ]; then
   SPEC_ARGS=(--speculative-config "{\"method\":\"dspark\",\"model\":\"$DRAFT_DIR\",\"num_speculative_tokens\":${NST},\"draft_sample_method\":\"${DRAFT_SAMPLE}\"}")
+elif [ "$MODE" = "dflash" ]; then
+  SPEC_ARGS=(--speculative-config "{\"method\":\"dflash\",\"model\":\"${DFLASH_DIR:-$BASE/dflash2_w4a16}\",\"num_speculative_tokens\":${DFLASH_NST:-7}}")
+  COMP_CFG='{"cudagraph_mode":"piecewise","custom_ops":["+rms_norm","+silu_and_mul"]}'
 elif [ "$MODE" = "mtp" ]; then
   SPEC_ARGS=(--speculative-config "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_NST:-3},\"draft_sample_method\":\"${DRAFT_SAMPLE:-probabilistic}\"}")
   # MTP draft 的 triton kernel 与 full cudagraph capture 冲突（stream capture 报错），生产用 piecewise
@@ -93,16 +102,17 @@ setsid /opt/toolchains/py312/bin/python -m vllm.entrypoints.openai.api_server \
   --tensor-parallel-size 1 \
   --max-model-len ${MAX_LEN:-220000} \
   --max-num-seqs "$MAX_SEQS" \
-  --max-num-batched-tokens 2048 \
+  --max-num-batched-tokens ${MAX_BATCHED:-2048} \
   --gpu-memory-utilization ${MEM_UTIL:-0.80} \
   --enable-chunked-prefill \
   --enable-prefix-caching \
+  "${PC_FLAG[@]}" \
+  "${OFFLOAD_FLAG[@]}" \
+  "${PROF_FLAG[@]}" \
   --kv-cache-dtype ${KV_DTYPE:-int8_per_token_head} \
-  --kv-offloading-size 96 \
-  --kv-offloading-backend native \
   --compilation-config "$COMP_CFG" \
   "${SPEC_ARGS[@]}"   "${MAMBA_FLAG[@]}" \
-  --api-key sk-your-api-key   --reasoning-parser qwen3   --default-chat-template-kwargs '{"enable_thinking": true, "reasoning_effort": "xhigh"}' \
+  --api-key sk-qwen38-dspark-dev   --reasoning-parser qwen3   --default-chat-template-kwargs '{"enable_thinking": true, "reasoning_effort": "xhigh"}' \
   --trust-remote-code \
   > "$LOG" 2>&1 < /dev/null &
 

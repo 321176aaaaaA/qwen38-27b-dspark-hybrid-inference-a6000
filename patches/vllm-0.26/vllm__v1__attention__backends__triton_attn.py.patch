@@ -1,0 +1,144 @@
+--- a/vllm/v1/attention/backends/triton_attn.py
++++ b/vllm/v1/attention/backends/triton_attn.py
+@@ -688,6 +688,30 @@
+ 
+         mm_prefix_range_tensor = attn_metadata.mm_prefix_range_tensor
+ 
++        # syv patch: split-KV Triton attention for speculative-decode verify
++        # batches (1 < queries/request <= BLOCK_M//G).  The unified kernel
++        # does not split the KV sequence across SMs when a request has more
++        # than one query token; at long context the verify step starves the
++        # GPU.  Supports per-token-head quantized KV via folded scales.
++        spec_ok, spec_why = _spec_attn_check(
++            self, attn_metadata, max_seqlen_q, output_scale,
++            mm_prefix_range_tensor)
++        if spec_ok:
++            _spec_attn_run(
++                self,
++                query[:num_actual_tokens],
++                key_cache,
++                value_cache,
++                output[:num_actual_tokens],
++                cu_seqlens_q,
++                seqused_k,
++                block_table,
++                max_seqlen_q,
++                k_scale_cache,
++                v_scale_cache,
++            )
++            return output
++
+         unified_attention(
+             q=query[:num_actual_tokens],
+             k=key_cache,
+@@ -874,3 +898,110 @@
+             flash_layout,
+             is_fp8_kv_cache,
+         )
++
++
++# ---- syv patch: split-KV spec-decode verify attention ----------------------
++_SPEC_ATTN = {}
++_SPEC_SKIP_LOGGED = set()
++
++
++def _spec_attn_check(impl, attn_metadata, max_seqlen_q, output_scale,
++                     mm_prefix_range_tensor):
++    """Returns (ok, reason).  Logs the first skip reason per impl when the
++    batch is verify-shaped, to diagnose why the hook did not fire."""
++    if not _spec_attn_enabled():
++        return False, "env"
++    if not (1 < max_seqlen_q <= _spec_attn_qmax(impl.num_queries_per_kv)):
++        return False, "shape"
++    if impl.kv_cache_dtype == "int4_per_token_head" and not _spec_int4_enabled():
++        return False, "int4_env"
++    checks = [
++        (attn_metadata.causal is True, f"causal={attn_metadata.causal!r}"),
++        (impl.sliding_window == (-1, -1), f"sw={impl.sliding_window}"),
++        (not impl.logits_soft_cap, f"softcap={impl.logits_soft_cap}"),
++        (impl.alibi_slopes is None, "alibi"),
++        (impl.sinks is None, "sinks"),
++        (output_scale is None, "output_scale"),
++        (mm_prefix_range_tensor is None, "mm_prefix"),
++        (attn_metadata.rswa_prefix_lens is None, "rswa"),
++        (impl.chunk_lookback < 0, f"chunk_lookback={impl.chunk_lookback}"),
++        (impl.head_size in (32, 64, 128, 256), f"head_size={impl.head_size}"),
++    ]
++    for ok, why in checks:
++        if not ok:
++            key = (id(impl), why)
++            if key not in _SPEC_SKIP_LOGGED:
++                _SPEC_SKIP_LOGGED.add(key)
++                logger.info(
++                    "spec-decode split-KV attention skipped: %s "
++                    "(max_seqlen_q=%d, G=%d)", why, max_seqlen_q,
++                    impl.num_queries_per_kv)
++            return False, why
++    return True, "ok"
++
++
++def _spec_attn_enabled() -> bool:
++    import os
++
++    return os.environ.get("VLLM_SPEC_DECODE_ATTN", "0") == "1"
++
++
++def _spec_int4_enabled() -> bool:
++    import os
++
++    return os.environ.get("VLLM_SPEC_DECODE_INT4", "1") == "1"
++
++
++def _spec_attn_qmax(group: int) -> int:
++    from vllm.v1.attention.ops.spec_decode_attn import BLOCK_M
++
++    return BLOCK_M // group
++
++
++def _spec_attn_run(
++    impl,
++    q,
++    key_cache,
++    value_cache,
++    out,
++    cu_seqlens_q,
++    seqused_k,
++    block_table,
++    max_seqlen_q,
++    k_scale_cache=None,
++    v_scale_cache=None,
++):
++    from vllm.v1.attention.ops.spec_decode_attn import SpecDecodeAttention
++
++    key = (impl.num_heads, impl.head_size, q.device)
++    if key not in _SPEC_ATTN:
++        logger.info(
++            "spec-decode split-KV attention engaged: heads=%d head_size=%d "
++            "pth_scales=%s", impl.num_heads, impl.head_size,
++            k_scale_cache is not None)
++    att = _SPEC_ATTN.get(key)
++    if att is None:
++        from vllm.config import get_current_vllm_config
++
++        try:
++            max_reqs = get_current_vllm_config().scheduler_config.max_num_seqs
++        except Exception:
++            max_reqs = 256
++        max_reqs = max(max_reqs, cu_seqlens_q.shape[0] - 1)
++        att = SpecDecodeAttention(max_reqs, impl.num_heads, impl.head_size, q.device)
++        _SPEC_ATTN[key] = att
++    att.run(
++        q,
++        key_cache,
++        value_cache,
++        out,
++        cu_seqlens_q,
++        seqused_k,
++        block_table,
++        impl.scale,
++        cu_seqlens_q.shape[0] - 1,
++        max_seqlen_q,
++        k_scale_cache=k_scale_cache,
++        v_scale_cache=v_scale_cache,
++        int4=impl.kv_cache_dtype == "int4_per_token_head",
++    )
